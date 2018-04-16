@@ -59,7 +59,7 @@ service ServerCA {
     rpc SignCsr(SignCsrRequest) returns (SignCsrResponse);
     /** Used for generating a CSR for the intermediate signing certificate. The CSR will then be submitted to the CA plugin for signing. */
     rpc GenerateCsr(GenerateCsrRequest) returns (GenerateCsrResponse);
-    /** Used to read the stored Intermediate CP cert. */
+    /** Used to read the stored Intermediate Server cert. */
     rpc FetchCertificate(FetchCertificateRequest) returns (FetchCertificateResponse);
     /** Used for setting/storing the signed intermediate certificate. */
     rpc LoadCertificate(LoadCertificateRequest) returns (LoadCertificateResponse);

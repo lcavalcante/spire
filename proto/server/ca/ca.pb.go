@@ -300,7 +300,7 @@ type ServerCAClient interface {
 	SignCsr(ctx context.Context, in *SignCsrRequest, opts ...grpc.CallOption) (*SignCsrResponse, error)
 	// * Used for generating a CSR for the intermediate signing certificate. The CSR will then be submitted to the CA plugin for signing.
 	GenerateCsr(ctx context.Context, in *GenerateCsrRequest, opts ...grpc.CallOption) (*GenerateCsrResponse, error)
-	// * Used to read the stored Intermediate CP cert.
+	// * Used to read the stored Intermediate Server cert.
 	FetchCertificate(ctx context.Context, in *FetchCertificateRequest, opts ...grpc.CallOption) (*FetchCertificateResponse, error)
 	// * Used for setting/storing the signed intermediate certificate.
 	LoadCertificate(ctx context.Context, in *LoadCertificateRequest, opts ...grpc.CallOption) (*LoadCertificateResponse, error)
@@ -379,7 +379,7 @@ type ServerCAServer interface {
 	SignCsr(context.Context, *SignCsrRequest) (*SignCsrResponse, error)
 	// * Used for generating a CSR for the intermediate signing certificate. The CSR will then be submitted to the CA plugin for signing.
 	GenerateCsr(context.Context, *GenerateCsrRequest) (*GenerateCsrResponse, error)
-	// * Used to read the stored Intermediate CP cert.
+	// * Used to read the stored Intermediate Server cert.
 	FetchCertificate(context.Context, *FetchCertificateRequest) (*FetchCertificateResponse, error)
 	// * Used for setting/storing the signed intermediate certificate.
 	LoadCertificate(context.Context, *LoadCertificateRequest) (*LoadCertificateResponse, error)
