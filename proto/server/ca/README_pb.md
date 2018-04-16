@@ -30,7 +30,7 @@
   
   
   
-    - [ControlPlaneCA](#spire.server.ca.ControlPlaneCA)
+    - [ServerCA](#spire.server.ca.ServerCA)
   
 
 - [Scalar Value Types](#scalar-value-types)
@@ -292,9 +292,9 @@ Represents a response with a signed certificate.
  
 
 
-<a name="spire.server.ca.ControlPlaneCA"/>
+<a name="spire.server.ca.ServerCA"/>
 
-### ControlPlaneCA
+### ServerCA
 
 
 | Method Name | Request Type | Response Type | Description |
