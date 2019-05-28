@@ -163,6 +163,14 @@ func (m *Manager) rotateX509CA(ctx context.Context) error {
 		m.activateX509CA()
 	}
 
+	ttl := time.Until(m.currentX509CA.x509CA.Certificate.NotAfter)
+	m.c.Metrics.SetGaugeWithLabels(
+		[]string{telemetry.Manager, telemetry.X509CA, telemetry.Rotate, telemetry.TTL},
+		float32(ttl.Seconds()),
+		[]telemetry.Label{
+			{Name: telemetry.TrustDomainID, Value: m.c.TrustDomain.String()},
+		})
+
 	return nil
 }
 
