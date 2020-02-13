@@ -28,11 +28,13 @@ import (
 	"github.com/spiffe/spire/pkg/server/plugin/notifier"
 	no_gcs_bundle "github.com/spiffe/spire/pkg/server/plugin/notifier/gcsbundle"
 	no_k8sbundle "github.com/spiffe/spire/pkg/server/plugin/notifier/k8sbundle"
+	"github.com/spiffe/spire/pkg/server/plugin/upstreamauthority"
 	"github.com/spiffe/spire/pkg/server/plugin/upstreamca"
 	up_aws_pca "github.com/spiffe/spire/pkg/server/plugin/upstreamca/aws"
 	up_awssecret "github.com/spiffe/spire/pkg/server/plugin/upstreamca/awssecret"
 	up_disk "github.com/spiffe/spire/pkg/server/plugin/upstreamca/disk"
 	up_spire "github.com/spiffe/spire/pkg/server/plugin/upstreamca/spire"
+	"github.com/spiffe/spire/pkg/server/plugin/upstreamca/wrapper"
 )
 
 type Catalog interface {
@@ -42,6 +44,7 @@ type Catalog interface {
 	GetUpstreamCA() (upstreamca.UpstreamCA, bool)
 	GetKeyManager() keymanager.KeyManager
 	GetNotifiers() []Notifier
+	GetUpstreamAuthority() upstreamauthority.UpstreamAuthority
 }
 
 type GlobalConfig = catalog.GlobalConfig
@@ -137,6 +140,14 @@ func (p *Plugins) GetKeyManager() keymanager.KeyManager {
 
 func (p *Plugins) GetNotifiers() []Notifier {
 	return p.Notifiers
+}
+
+func (p *Plugins) GetUpstreamAuthority() upstreamauthority.UpstreamAuthority {
+	if p.UpstreamCA != nil {
+		return wrapper.New(*p.UpstreamCA)
+	}
+
+	return nil
 }
 
 type Config struct {
