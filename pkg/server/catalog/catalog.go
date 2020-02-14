@@ -34,7 +34,6 @@ import (
 	up_awssecret "github.com/spiffe/spire/pkg/server/plugin/upstreamca/awssecret"
 	up_disk "github.com/spiffe/spire/pkg/server/plugin/upstreamca/disk"
 	up_spire "github.com/spiffe/spire/pkg/server/plugin/upstreamca/spire"
-	"github.com/spiffe/spire/pkg/server/plugin/upstreamca/wrapper"
 )
 
 type Catalog interface {
@@ -44,7 +43,7 @@ type Catalog interface {
 	GetUpstreamCA() (upstreamca.UpstreamCA, bool)
 	GetKeyManager() keymanager.KeyManager
 	GetNotifiers() []Notifier
-	GetUpstreamAuthority() upstreamauthority.UpstreamAuthority
+	GetUpstreamAuthority() (upstreamauthority.UpstreamAuthority, bool)
 }
 
 type GlobalConfig = catalog.GlobalConfig
@@ -103,12 +102,13 @@ type Notifier struct {
 }
 
 type Plugins struct {
-	DataStore     datastore.DataStore
-	NodeAttestors map[string]nodeattestor.NodeAttestor
-	NodeResolvers map[string]noderesolver.NodeResolver
-	UpstreamCA    *upstreamca.UpstreamCA
-	KeyManager    keymanager.KeyManager
-	Notifiers     []Notifier
+	DataStore         datastore.DataStore
+	NodeAttestors     map[string]nodeattestor.NodeAttestor
+	NodeResolvers     map[string]noderesolver.NodeResolver
+	UpstreamCA        *upstreamca.UpstreamCA
+	KeyManager        keymanager.KeyManager
+	Notifiers         []Notifier
+	upstreamAuthority upstreamauthority.UpstreamAuthority
 }
 
 var _ Catalog = (*Plugins)(nil)
@@ -142,12 +142,12 @@ func (p *Plugins) GetNotifiers() []Notifier {
 	return p.Notifiers
 }
 
-func (p *Plugins) GetUpstreamAuthority() upstreamauthority.UpstreamAuthority {
-	if p.UpstreamCA != nil {
-		return wrapper.New(*p.UpstreamCA)
+func (p *Plugins) GetUpstreamAuthority() (upstreamauthority.UpstreamAuthority, bool) {
+	if p.upstreamAuthority != nil {
+		return p.upstreamAuthority, true
 	}
 
-	return nil
+	return nil, false
 }
 
 type Config struct {
@@ -188,6 +188,11 @@ func Load(ctx context.Context, config Config) (*Repository, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if p.UpstreamCA != nil {
+		p.upstreamAuthority = upstreamauthority.Wrap(*p.UpstreamCA)
+	}
+
 	return &Repository{
 		Catalog: p,
 		Closer:  closer,
