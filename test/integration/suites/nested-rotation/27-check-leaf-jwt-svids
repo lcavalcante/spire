@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#NUMCHECKS=15
+#CHECKINTERVAL=3
+#for ((i=1;i<=NUMCHECKS;i++)); do
+#    log-info "checking JWT-SVID ($i of $NUMCHECKS)..."
+#    # fetch JWT-SVID and extract token
+#    token=$(docker-compose exec -T leafA-agent \
+#        /opt/spire/bin/spire-agent api fetch jwt -audience testIt -socketPath /opt/spire/sockets/workload_api.sock | sed -n '2p') || fail-now "JWT-SVID check failed"
+#
+#    # validate leafA token using leafB
+#    docker-compose exec -T leafB-agent \
+#        /opt/spire/bin/spire-agent api validate jwt -audience testIt  -svid "${token}" \
+#           -socketPath /opt/spire/sockets/workload_api.sock
+#
+#    sleep "${CHECKINTERVAL}"
+#done

@@ -28,6 +28,9 @@ func (cc *CLI) Run(args []string) int {
 		"api fetch jwt": func() (cli.Command, error) {
 			return api.NewFetchJWTCommand(), nil
 		},
+		"api validate x509": func() (cli.Command, error) {
+			return api.NewValidateX509Command(), nil
+		},
 		"api validate jwt": func() (cli.Command, error) {
 			return api.NewValidateJWTCommand(), nil
 		},

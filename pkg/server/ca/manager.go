@@ -77,7 +77,8 @@ type Manager struct {
 	journal *Journal
 
 	// Used to log a warning only once.
-	warnOnce sync.Once
+	warnOnce       sync.Once
+	warnX509CAOnce sync.Once
 }
 
 func NewManager(c ManagerConfig) *Manager {
@@ -210,16 +211,7 @@ func (m *Manager) prepareX509CA(ctx context.Context, slot *x509CASlot) (err erro
 		return err
 	}
 
-	var x509CA *X509CA
-	var trustBundle []*x509.Certificate
-	upstreamAuthority, useUpstream := m.c.Catalog.GetUpstreamAuthority()
-	if useUpstream {
-		x509CA, trustBundle, err = UpstreamSignX509CA(ctx, signer, m.c.TrustDomain.Host, m.c.CASubject, upstreamAuthority, m.c.UpstreamBundle, m.c.CATTL)
-	} else {
-		notBefore := now.Add(-backdate)
-		notAfter := now.Add(m.c.CATTL)
-		x509CA, trustBundle, err = SelfSignX509CA(ctx, signer, m.c.TrustDomain.Host, m.c.CASubject, notBefore, notAfter)
-	}
+	x509CA, trustBundle, err := m.signX509CA(ctx, signer)
 	if err != nil {
 		return err
 	}
@@ -239,10 +231,43 @@ func (m *Manager) prepareX509CA(ctx context.Context, slot *x509CASlot) (err erro
 		telemetry.Slot:           slot.id,
 		telemetry.IssuedAt:       timeField(slot.issuedAt),
 		telemetry.Expiration:     timeField(slot.x509CA.Certificate.NotAfter),
-		telemetry.SelfSigned:     !useUpstream,
+		telemetry.SelfSigned:     len(slot.x509CA.Certificate.AuthorityKeyId) == 0,
 		telemetry.UpstreamBundle: m.c.UpstreamBundle,
 	}).Info("X509 CA prepared")
 	return nil
+}
+
+// signX509CA signs x509 CA using configured upstream authority, in case it is not configured or MintX509CA is not implemented
+// it will create a self signed certificate
+func (m *Manager) signX509CA(ctx context.Context, signer crypto.Signer) (*X509CA, []*x509.Certificate, error) {
+	now := m.c.Clock.Now()
+
+	upstreamAuthority, useUpstream := m.c.Catalog.GetUpstreamAuthority()
+	if useUpstream {
+		// TODO: is it really required? and must we move time to a constant?
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		x509CA, trustBundle, err := UpstreamSignX509CA(ctx, signer, m.c.TrustDomain.Host, m.c.CASubject, upstreamAuthority, m.c.UpstreamBundle, m.c.CATTL)
+
+		switch {
+		case gcu.IsUnimplementedError(err):
+			m.warnX509CAOnce.Do(func() {
+				m.c.Log.Warn("UpstreamAuthority does not support x509-SVIDs. Workloads managed " +
+					"by this server may have trouble communicating with workloads outside " +
+					"this cluster when using x509-SVIDs.")
+			})
+		case err != nil:
+			return nil, nil, errs.New("upstream CA failed with %v", err)
+		default:
+			return x509CA, trustBundle, nil
+		}
+	}
+
+	notBefore := now.Add(-backdate)
+	notAfter := now.Add(m.c.CATTL)
+	x509CA, trustBundle, err := SelfSignX509CA(ctx, signer, m.c.TrustDomain.Host, m.c.CASubject, notBefore, notAfter)
+	return x509CA, trustBundle, err
 }
 
 func (m *Manager) activateX509CA() {

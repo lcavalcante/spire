@@ -1,0 +1,23 @@
+#!/bin/bash
+
+NUMCHECKS=10
+CHECKINTERVAL=3
+for ((i=1;i<=NUMCHECKS;i++)); do
+    log-info "checking X509-SVID ($i of $NUMCHECKS)..."
+    # Write svid on disk
+    docker-compose exec -T leafA-agent \
+        /opt/spire/bin/spire-agent api fetch x509 \
+        -socketPath /opt/spire/sockets/workload_api.sock \
+        -write /opt/spire/conf/agent || fail-now "x509-SVID check failed"
+
+    # Copy leafA svid into leafB
+    cp ./leafA/agent/svid.0.pem ./leafB/agent/svid.0.pem
+
+    # Validate leafA svid using leafB
+    docker-compose exec -T leafB-agent \
+        /opt/spire/bin/spire-agent api validate x509 \
+        -socketPath /opt/spire/sockets/workload_api.sock \
+        -svid /opt/spire/conf/agent/svid.0.pem
+
+    sleep "${CHECKINTERVAL}"
+done

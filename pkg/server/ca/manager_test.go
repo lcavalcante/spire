@@ -36,6 +36,8 @@ import (
 	"github.com/spiffe/spire/test/fakes/fakeupstreamauthority"
 	"github.com/spiffe/spire/test/spiretest"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -141,6 +143,23 @@ func (s *ManagerSuite) TestSelfSigning() {
 	s.NotNil(x509CA.Signer)
 	if s.NotNil(x509CA.Certificate) {
 		s.Equal(x509CA.Certificate.Subject, x509CA.Certificate.Issuer)
+	}
+	s.Empty(x509CA.UpstreamChain)
+}
+
+func (s *ManagerSuite) TestUpstreamUnimplementedMint509CA() {
+	upstreamAuthority := fakeupstreamauthority.New(s.T(), fakeupstreamauthority.Config{
+		TrustDomain: testTrustDomain,
+		MintError:   status.Errorf(codes.Unimplemented, "unimplemented on fake"),
+	})
+
+	s.initUpstreamSignedManager(upstreamAuthority, false)
+
+	x509CA := s.currentX509CA()
+	s.NotNil(x509CA.Signer)
+	if s.NotNil(x509CA.Certificate) {
+		s.Equal(x509CA.Certificate.Subject, x509CA.Certificate.Issuer)
+		s.Empty(x509CA.Certificate.AuthorityKeyId)
 	}
 	s.Empty(x509CA.UpstreamChain)
 }

@@ -37,6 +37,7 @@ type Config struct {
 	TrustDomain           string
 	UseIntermediate       bool
 	PublishJWTKeyResponse *upstreamauthority.PublishJWTKeyResponse
+	MintError             error
 }
 
 type UpstreamAuthority struct {
@@ -111,6 +112,10 @@ func (m *UpstreamAuthority) Intermediate() *x509.Certificate {
 }
 
 func (m *UpstreamAuthority) MintX509CA(ctx context.Context, request *upstreamauthority.MintX509CARequest) (*upstreamauthority.MintX509CAResponse, error) {
+	if m.config.MintError != nil {
+		return nil, m.config.MintError
+	}
+
 	cert, err := m.upstreamCA.SignCSR(ctx, request.Csr, time.Second*time.Duration(request.PreferredTtl))
 	if err != nil {
 		return nil, err

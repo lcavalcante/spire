@@ -1,0 +1,29 @@
+#!/bin/bash
+
+log-debug "creating intermediateA downstream registration entry..."
+
+docker-compose exec -T root-server \
+    /opt/spire/bin/spire-server entry create \
+    -parentID "spiffe://domain.test/spire/agent/x509pop/$(fingerprint root/agent/agent.crt.pem)" \
+    -spiffeID "spiffe://domain.test/intermediateA" \
+    -selector "docker:label:org.integration.name:intermediateA" \
+    -downstream \
+    -ttl 180
+
+# Check at most 30 times (with one second in between) that the agent has
+# successfully synced down the workload entry.
+MAXCHECKS=30
+CHECKINTERVAL=1
+for ((i=1;i<=MAXCHECKS;i++)); do
+    log-info "checking for synced workload entry ($i of $MAXCHECKS max)..."
+    docker-compose logs root-agent
+    if docker-compose logs root-agent | grep "spiffe://domain.test/intermediateA"; then
+        exit 0
+    fi
+    sleep "${CHECKINTERVAL}"
+done
+
+fail-now "timed out waiting for agent to sync down entry"
+
+
+

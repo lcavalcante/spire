@@ -1,0 +1,5 @@
+#!/bin/bash
+
+log-debug "bootstrapping leafB agent..."
+docker-compose exec -T leafB-server \
+    /opt/spire/bin/spire-server bundle show > leafB/agent/bootstrap.crt
