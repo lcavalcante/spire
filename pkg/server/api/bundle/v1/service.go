@@ -6,6 +6,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/spire/pkg/common/telemetry"
+	"github.com/spiffe/spire/pkg/server/api"
 	"github.com/spiffe/spire/pkg/server/api/rpccontext"
 	"github.com/spiffe/spire/pkg/server/plugin/datastore"
 	"github.com/spiffe/spire/proto/spire-next/api/server/bundle/v1"
@@ -183,7 +184,52 @@ func (s *Service) BatchSetFederatedBundle(ctx context.Context, req *bundle.Batch
 }
 
 func (s *Service) BatchDeleteFederatedBundle(ctx context.Context, req *bundle.BatchDeleteFederatedBundleRequest) (*bundle.BatchDeleteFederatedBundleResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method BatchDeleteFederatedBundle not implemented")
+	log := rpccontext.Logger(ctx)
+
+	if len(req.TrustDomains) == 0 {
+		log.Error("Request missing trust domains")
+		return nil, status.Error(codes.InvalidArgument, "request missing trust domains")
+	}
+
+	var results []*bundle.BatchDeleteFederatedBundleResponse_Result
+	for _, trustDomain := range req.TrustDomains {
+		err := s.deleteFederatedBundle(ctx, trustDomain)
+		results = append(results, &bundle.BatchDeleteFederatedBundleResponse_Result{
+			Status:      api.StatusFromError(err),
+			TrustDomain: trustDomain,
+		})
+	}
+
+	return &bundle.BatchDeleteFederatedBundleResponse{
+		Results: results,
+	}, nil
+}
+
+func (s *Service) deleteFederatedBundle(ctx context.Context, trustDomain string) error {
+	log := rpccontext.Logger(ctx).WithField(telemetry.TrustDomainID, trustDomain)
+
+	td, err := spiffeid.TrustDomainFromString(trustDomain)
+	if err != nil {
+		log.WithError(err).Error("Invalid request: malformed trust domain")
+		return status.Errorf(codes.InvalidArgument, "malformed trust domain: %v", err)
+	}
+
+	if s.td.Compare(td) == 0 {
+		log.Error("Invalid request: no possible to delete server bundle")
+		return status.Error(codes.InvalidArgument, "no possible to delete server bundle")
+	}
+
+	_, err = s.ds.DeleteBundle(ctx, &datastore.DeleteBundleRequest{
+		TrustDomainId: td.String(),
+		// TODO: what mode must we use here?
+		Mode: datastore.DeleteBundleRequest_RESTRICT,
+	})
+	if err != nil {
+		log.WithError(err).Error("Failed to delete Federated Bundle")
+		return status.Errorf(codes.Internal, "failed to delete Federated Bundle: %v", err)
+	}
+
+	return nil
 }
 
 func applyMask(b *common.Bundle, mask *types.BundleMask) (*types.Bundle, error) {

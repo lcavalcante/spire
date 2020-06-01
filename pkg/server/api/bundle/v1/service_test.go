@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
@@ -23,6 +21,7 @@ import (
 	"github.com/spiffe/spire/test/spiretest"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 var (
@@ -211,6 +210,141 @@ func TestGetBundle(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, b)
 			assertBundleWithMask(t, tdBundle, b, tt.outputMask)
+		})
+	}
+}
+
+func TestBatchDeleteFederatedBundle(t *testing.T) {
+	test := setupServiceTest(t)
+	defer test.Cleanup()
+
+	td1 := spiffeid.RequireTrustDomainFromString("td1.org")
+	td2 := spiffeid.RequireTrustDomainFromString("td2.org")
+	td3 := spiffeid.RequireTrustDomainFromString("td3.org")
+	dsBundles := []string{
+		trustDomain.String(),
+		td1.String(),
+		td2.String(),
+		td3.String(),
+	}
+
+	for _, tt := range []struct {
+		name string
+
+		code            codes.Code
+		err             string
+		expectLogs      []spiretest.LogEntry
+		expectResults   []*bundlepb.BatchDeleteFederatedBundleResponse_Result
+		expectDSBundles []string
+		trustDomains    []string
+	}{
+		{
+			name: "remove multiple bundles",
+			expectResults: []*bundlepb.BatchDeleteFederatedBundleResponse_Result{
+				{TrustDomain: td1.String()},
+				{TrustDomain: td2.String()},
+			},
+			expectDSBundles: []string{trustDomain.String(), td3.String()},
+			trustDomains:    []string{td1.String(), td2.String()},
+		},
+		{
+			name: "missing trust domains",
+			code: codes.InvalidArgument,
+			err:  "request missing trust domains",
+			expectLogs: []spiretest.LogEntry{
+				{
+					Level:   logrus.ErrorLevel,
+					Message: "Request missing trust domains",
+				},
+			},
+		},
+		{
+			name: "malformed trust domain",
+			expectLogs: []spiretest.LogEntry{
+				{
+					Level:   logrus.ErrorLevel,
+					Message: "Invalid request: malformed trust domain",
+					Data: logrus.Fields{
+						logrus.ErrorKey:         `spiffeid: unable to parse: parse spiffe://malformed TD: invalid character " " in host name`,
+						telemetry.TrustDomainID: "malformed TD",
+					},
+				},
+			},
+			expectResults: []*bundlepb.BatchDeleteFederatedBundleResponse_Result{
+				{
+					Status: &types.Status{
+						Code:    int32(codes.InvalidArgument),
+						Message: `malformed trust domain: spiffeid: unable to parse: parse spiffe://malformed TD: invalid character " " in host name`,
+					},
+					TrustDomain: "malformed TD",
+				},
+			},
+			expectDSBundles: dsBundles,
+			trustDomains:    []string{"malformed TD"},
+		},
+		{
+			name: "fail on server bundle",
+			expectLogs: []spiretest.LogEntry{
+				{
+					Level:   logrus.ErrorLevel,
+					Message: "Invalid request: no possible to delete server bundle",
+					Data: logrus.Fields{
+						telemetry.TrustDomainID: trustDomain.String(),
+					},
+				},
+			},
+			expectResults: []*bundlepb.BatchDeleteFederatedBundleResponse_Result{
+				{
+					Status: &types.Status{
+						Code:    int32(codes.InvalidArgument),
+						Message: "no possible to delete server bundle",
+					},
+					TrustDomain: trustDomain.String(),
+				},
+			},
+			expectDSBundles: dsBundles,
+			trustDomains:    []string{trustDomain.String()},
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			test.logHook.Reset()
+
+			// Create all test bundles
+			for _, td := range dsBundles {
+				_ = createBundle(t, test, td)
+			}
+
+			resp, err := test.client.BatchDeleteFederatedBundle(ctx, &bundlepb.BatchDeleteFederatedBundleRequest{
+				TrustDomains: tt.trustDomains,
+			})
+
+			spiretest.AssertLogs(t, test.logHook.AllEntries(), tt.expectLogs)
+			if tt.err != "" {
+				spiretest.RequireGRPCStatusContains(t, err, tt.code, tt.err)
+				require.Nil(t, resp)
+
+				return
+			}
+
+			// Validate response
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			expectResponse := &bundlepb.BatchDeleteFederatedBundleResponse{
+				Results: tt.expectResults,
+			}
+
+			spiretest.AssertProtoEqual(t, expectResponse, resp)
+
+			// Validate DS content
+			dsResp, err := test.ds.ListBundles(ctx, &datastore.ListBundlesRequest{})
+			require.NoError(t, err)
+
+			var dsBundles []string
+			for _, b := range dsResp.Bundles {
+				dsBundles = append(dsBundles, b.TrustDomainId)
+			}
+			require.Equal(t, tt.expectDSBundles, dsBundles)
 		})
 	}
 }
