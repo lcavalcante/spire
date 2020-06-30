@@ -2,14 +2,19 @@ package agent
 
 import (
 	"context"
+	"crypto/x509"
 
 	"github.com/golang/protobuf/ptypes/empty"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/spire/pkg/common/nodeutil"
 	"github.com/spiffe/spire/pkg/common/telemetry"
 	"github.com/spiffe/spire/pkg/server/api"
 	"github.com/spiffe/spire/pkg/server/api/rpccontext"
+	"github.com/spiffe/spire/pkg/server/ca"
 	"github.com/spiffe/spire/pkg/server/plugin/datastore"
 	"github.com/spiffe/spire/proto/spire-next/api/server/agent/v1"
 	"github.com/spiffe/spire/proto/spire-next/types"
+	"github.com/spiffe/spire/proto/spire/common"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,6 +28,7 @@ func RegisterService(s *grpc.Server, service *Service) {
 // Config is the service configuration
 type Config struct {
 	Datastore datastore.DataStore
+	ServerCA  ca.ServerCA
 }
 
 // New creates a new agent service
@@ -34,6 +40,7 @@ func New(config Config) *Service {
 
 // Service implements the v1 agent service
 type Service struct {
+	ca ca.ServerCA
 	ds datastore.DataStore
 }
 
@@ -116,7 +123,136 @@ func (s *Service) AttestAgent(stream agent.Agent_AttestAgentServer) error {
 }
 
 func (s *Service) RenewAgent(stream agent.Agent_RenewAgentServer) error {
-	return status.Error(codes.Unimplemented, "method not implemented")
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+
+	log := rpccontext.Logger(ctx)
+
+	if err := rpccontext.RateLimit(ctx, 1); err != nil {
+		log.WithError(err).Error("Rejecting request due to renew agent rate limiting")
+		return err
+	}
+
+	callerID, ok := rpccontext.CallerID(ctx)
+	if !ok {
+		log.Error("Missing caller ID")
+		return status.Error(codes.InvalidArgument, "missing caller ID")
+	}
+
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			log.WithError(err).Error("Failed to receive request from stream")
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+
+		switch step := req.Step.(type) {
+		case *agent.RenewAgentRequest_Params:
+			if step.Params == nil {
+				log.Error("Invalid argument: missing params")
+				return status.Error(codes.InvalidArgument, "missing params")
+			}
+
+			if len(step.Params.Csr) == 0 {
+				log.Error("Invalid argument: missing csr")
+				return status.Error(codes.InvalidArgument, "missing csr")
+			}
+
+			csr, err := x509.ParseCertificateRequest(step.Params.Csr)
+			if err != nil {
+				log.WithError(err).Error("Failed to parse csr")
+				return status.Errorf(codes.InvalidArgument, "failed to parse csr: %v", err)
+			}
+
+			// Get attested node
+			// TODO: once mask is merged, may I just validate attested node is not banned once?
+			node, err := s.fetchAttestedNode(ctx, callerID)
+			if err != nil {
+				log.WithError(err).Error("Failed to fetch attested node")
+				return err
+			}
+
+			// Sign a new X509 SVID
+			x509Svid, err := s.ca.SignX509SVID(ctx, ca.X509SVIDParams{
+				SpiffeID:  node.SpiffeId,
+				PublicKey: csr.PublicKey,
+			})
+			if err != nil {
+				log.WithError(err).Error("Failed to sign X509 SVID")
+				return status.Errorf(codes.Internal, "failed to sign X509 SVID: %v", err)
+			}
+
+			var certChain [][]byte
+			for _, cert := range x509Svid {
+				certChain = append(certChain, cert.Raw)
+			}
+
+			// Send response with new X509 SVID
+			if err := stream.Send(&agent.RenewAgentResponse{
+				Svid: &types.X509SVID{
+					Id:        api.ProtoFromID(callerID),
+					ExpiresAt: x509Svid[0].NotAfter.Unix(),
+					CertChain: certChain,
+				},
+			}); err != nil {
+				log.WithError(err).Error("Failed to send response")
+				return status.Errorf(codes.Internal, "failed to send response: %v", err)
+			}
+
+			// TODO: May I use Mask here?
+			if _, err := s.ds.UpdateAttestedNode(ctx, &datastore.UpdateAttestedNodeRequest{
+				SpiffeId:            node.SpiffeId,
+				CertNotAfter:        node.CertNotAfter,
+				CertSerialNumber:    node.CertSerialNumber,
+				NewCertNotAfter:     x509Svid[0].NotAfter.Unix(),
+				NewCertSerialNumber: x509Svid[0].SerialNumber.String(),
+			}); err != nil {
+				log.WithError(err).Error("Failed to update attested node")
+				return status.Errorf(codes.Internal, "failed to update attested node: %v", err)
+			}
+		case *agent.RenewAgentRequest_Ack_:
+			node, err := s.fetchAttestedNode(ctx, callerID)
+			if err != nil {
+				log.WithError(err).Error("Failed to fet attested node")
+				return err
+			}
+
+			// TODO: may I use mask here?
+			if _, err := s.ds.UpdateAttestedNode(ctx, &datastore.UpdateAttestedNodeRequest{
+				SpiffeId:         node.SpiffeId,
+				CertNotAfter:     node.NewCertNotAfter,
+				CertSerialNumber: node.NewCertSerialNumber,
+			}); err != nil {
+				log.WithError(err).Error("Failed to udpate attested node")
+				return status.Errorf(codes.Internal, "failed to update attested node")
+			}
+
+			// TODO: is it ok to finish call here?
+			return nil
+		}
+	}
+}
+
+func (s *Service) fetchAttestedNode(ctx context.Context, agentID spiffeid.ID) (*common.AttestedNode, error) {
+	attestedNodeResp, err := s.ds.FetchAttestedNode(ctx, &datastore.FetchAttestedNodeRequest{
+		SpiffeId: agentID.String(),
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fetch attested node: %v", err)
+	}
+
+	node := attestedNodeResp.Node
+	if node == nil {
+		return nil, status.Error(codes.Internal, "no attested node found")
+	}
+
+	// Verify that node is not banned
+	if nodeutil.IsAgentBanned(node) {
+		// TODO: what error return here?
+		return nil, status.Error(codes.Internal, "agent banned")
+	}
+
+	return attestedNodeResp.Node, nil
 }
 
 func (s *Service) CreateJoinToken(ctx context.Context, req *agent.CreateJoinTokenRequest) (*types.JoinToken, error) {
