@@ -3,6 +3,8 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/spire/pkg/common/x509util"
 	"github.com/spiffe/spire/pkg/server/api"
 	"github.com/spiffe/spire/pkg/server/api/agent/v1"
 	"github.com/spiffe/spire/pkg/server/api/rpccontext"
@@ -18,13 +21,19 @@ import (
 	"github.com/spiffe/spire/proto/spire/common"
 	"github.com/spiffe/spire/proto/spire/server/datastore"
 	"github.com/spiffe/spire/test/fakes/fakedatastore"
+	"github.com/spiffe/spire/test/fakes/fakeserverca"
 	"github.com/spiffe/spire/test/spiretest"
+	"github.com/spiffe/spire/test/testkey"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
-var ctx = context.Background()
+var (
+	ctx     = context.Background()
+	td      = spiffeid.RequireTrustDomainFromString("example.org")
+	agentID = td.NewID("agent")
+)
 
 func TestListAgents(t *testing.T) {
 	test := setupServiceTest(t)
@@ -304,18 +313,103 @@ func TestListAgents(t *testing.T) {
 	}
 }
 
-type serviceTest struct { //nolint: unused,deadcode
-	client  agentpb.AgentClient
-	done    func()
-	ds      *fakedatastore.DataStore
-	logHook *test.Hook
+func TestRenewAgent(t *testing.T) {
+	testKey := testkey.MustEC256()
+	agentIDType := &types.SPIFFEID{TrustDomain: "examples.org", Path: "/agent"}
+
+	defaultNode := &common.AttestedNode{
+		SpiffeId:            agentID.String(),
+		AttestationDataType: "t",
+		CertNotAfter:        12345,
+		CertSerialNumber:    "6789",
+		Selectors: []*common.Selector{
+			{Type: "a", Value: "1"},
+		},
+	}
+
+	for _, tt := range []struct {
+		name string
+
+		code       codes.Code
+		dsError    error
+		err        string
+		expectLogs []spiretest.LogEntry
+		paramReq   *agentpb.RenewAgentRequest
+		ackReq     *agentpb.RenewAgentRequest
+		noAgentID  bool
+	}{
+		{
+			name: "success",
+		},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			test := setupServiceTest(t)
+			defer test.Cleanup()
+
+			_, err := test.ds.CreateAttestedNode(ctx, &datastore.CreateAttestedNodeRequest{
+				Node: defaultNode,
+			})
+			require.NoError(t, err)
+
+			now := test.ca.Clock().Now().UTC()
+			expiredAt := now.Add(test.ca.X509SVIDTTL())
+
+			stream, err := test.client.RenewAgent(ctx)
+			require.NoError(t, err)
+
+			err = stream.Send(tt.paramReq)
+			require.NoError(t, err)
+
+			resp, err := stream.Recv()
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			spiretest.AssertProtoEqual(t, agentIDType, resp.Svid.Id)
+			require.Equal(t, expiredAt.Unix, resp.Svid.ExpiresAt)
+
+			certChain, err := x509util.RawCertsToCertificates(resp.Svid.CertChain)
+			require.NoError(t, err)
+			require.NotEmpty(t, certChain)
+
+			x509Svid := certChain[0]
+			require.Equal(t, expiredAt, x509Svid.NotAfter.Unix())
+			require.Equal(t, []*url.URL{agentID.URL()}, x509Svid.URIs)
+			// TODO: verify signature
+
+			node, err := test.ds.FetchAttestedNode(ctx, &datastore.FetchAttestedNodeRequest{
+				SpiffeId: agentID.String(),
+			})
+			require.NoError(t, err)
+			node.Node.SpiffeId
+
+			// TODO: verify new values on DS
+
+			err = stream.Send(tt.ackReq)
+			require.NoError(t, err)
+
+			// TODO: verify
+
+		})
+	}
+}
+
+type serviceTest struct {
+	ca           *fakeserverca.CA
+	client       agentpb.AgentClient
+	done         func()
+	ds           *fakedatastore.DataStore
+	logHook      *test.Hook
+	rateLimiter  *fakeRateLimiter
+	withCallerID bool
 }
 
 func (c *serviceTest) Cleanup() {
 	c.done()
 }
 
-func setupServiceTest(t *testing.T) *serviceTest { //nolint: unused,deadcode
+func setupServiceTest(t *testing.T) *serviceTest {
+	ca := fakeserverca.New(t, td.IDString(), &fakeserverca.Options{})
 	ds := fakedatastore.New(t)
 	service := agent.New(agent.Config{
 		Datastore: ds,
@@ -325,14 +419,21 @@ func setupServiceTest(t *testing.T) *serviceTest { //nolint: unused,deadcode
 	registerFn := func(s *grpc.Server) {
 		agent.RegisterService(s, service)
 	}
+	rateLimiter := &fakeRateLimiter{}
 
 	test := &serviceTest{
-		ds:      ds,
-		logHook: logHook,
+		ca:          ca,
+		ds:          ds,
+		logHook:     logHook,
+		rateLimiter: rateLimiter,
 	}
 
 	contextFn := func(ctx context.Context) context.Context {
 		ctx = rpccontext.WithLogger(ctx, log)
+		ctx = rpccontext.WithRateLimiter(ctx, rateLimiter)
+		if test.withCallerID {
+			ctx = rpccontext.WithCallerID(ctx, agentID)
+		}
 		return ctx
 	}
 
@@ -341,4 +442,17 @@ func setupServiceTest(t *testing.T) *serviceTest { //nolint: unused,deadcode
 	test.client = agentpb.NewAgentClient(conn)
 
 	return test
+}
+
+type fakeRateLimiter struct {
+	count int
+	err   error
+}
+
+func (f *fakeRateLimiter) RateLimit(ctx context.Context, count int) error {
+	if f.count != count {
+		return fmt.Errorf("rate limiter got %d but expected %d", count, f.count)
+	}
+
+	return f.err
 }
