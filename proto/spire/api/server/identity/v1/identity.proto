@@ -1,0 +1,85 @@
+syntax = "proto3"
+package spire.api.server.identity.v1;
+option go_package = "github.com/spiffe/spire/proto/spire/api/server/identity/v1;identity"
+
+import "spire/types/x509svid.proto";
+import "spire/types/jwtsvid.proto";
+
+service Identity {
+
+	// Exchanges a SVID verifying identity via XXXXX, using a bidirectional stream to
+	// facilitate attestation methods, it can returns a JWT or X509 SVID.
+	rpc Exchange(stream ExchangeRequest) returns (stream ExchangeResponse);
+
+	// Renews provided SVID.
+	rpc Renew(RenewRequest) returns (RenewResponse);
+
+)
+
+message ExchangeRequest {
+	message Params {
+		ExchangeData data = 1;
+	}
+
+	oneof step {
+		Params params = 1;
+		
+		X509Request x509Request = 2;
+
+		JWTRequest jwtRequest = 3;
+	}
+}
+
+message ExchangeResponse {
+	oneof step {
+		X509Result x509Result = 1;
+
+		JWTResult jwtResult = 2;
+
+		bytes challenge = 3;
+	}
+}
+
+message RenewRequest {
+	oneof step {
+		X509Request x509Request = 1;
+
+		JWTRequest jwtRequest = 2;
+	}
+}
+
+message RenewResponse {
+	oneof step {
+		X509Result x509Result = 1;
+
+		JWTResult jwtResult = 2;
+	}
+}
+
+message X509Request {
+	X509SVIDParams = 1;
+}
+
+message JWTRequest {
+	JWTSVIDParams = 1;
+}
+
+//  TODO: MOVE TO TYPES
+message ExchangeData {
+	// The type of the exchange data.
+	string type = 1;
+
+	// The exchanging data payload. For JWT it must include 
+	string payload = 2;
+}
+
+	rpc Renew(RenewRequest) returns (RenewResponse);
+
+message X509Result {
+	spire.types.X509SVID svid = 1;
+}
+
+message JWTResult {
+	spire.types.JWTSVID svid = 1;
+}
+

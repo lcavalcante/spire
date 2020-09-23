@@ -1,0 +1,46 @@
+syntax = "proto3"
+
+package spire.server.indentityexchanger;
+option go_package = "github.com/spiffe/spire/proto/spire/server/indentityexchanger";
+
+import "spire/common/plugin/plugin.proto";
+import "spire/common/common.proto";
+
+service IdentityExchanger {
+    // Exchange SVID
+    rpc Exchange(stream ExchangeRequest) returns (stream AttestResponse);
+
+    /** Responsible for configuration of the plugin. */
+    rpc Configure(spire.common.plugin.ConfigureRequest) returns (spire.common.plugin.ConfigureResponse);
+    /** Returns the  version and related metadata of the installed plugin. */
+    rpc GetPluginInfo(spire.common.plugin.GetPluginInfoRequest) returns (spire.common.plugin.GetPluginInfoResponse);
+}
+
+message ExchangeRequest {
+    oneof step {
+        ExchangeData data = 1;
+    
+        bytes response = 2;
+    }
+}
+
+message ExchangeResponse {
+    message Response {
+        string workload_id = 1;
+        repeated spire.common.Selector selectors = 2;
+    }
+    
+    oneof step {
+        bytes challenge = 1;
+
+        Response response = 2;
+    }
+}
+
+// TODO: MOVE TO COMMON
+message ExchangeData {
+    /** Type of exchange to perform. */
+    string type = 1;
+    /** The exchange data. */
+    bytes data = 2;
+}
