@@ -1,4 +1,4 @@
-syntax = "proto3"
+syntax = "proto3";
 
 package spire.server.indentityexchanger;
 option go_package = "github.com/spiffe/spire/proto/spire/server/indentityexchanger";
@@ -8,7 +8,7 @@ import "spire/common/common.proto";
 
 service IdentityExchanger {
     // Exchange SVID
-    rpc Exchange(stream ExchangeRequest) returns (stream AttestResponse);
+    rpc Exchange(stream ExchangeRequest) returns (stream ExchangeResponse);
 
     /** Responsible for configuration of the plugin. */
     rpc Configure(spire.common.plugin.ConfigureRequest) returns (spire.common.plugin.ConfigureResponse);

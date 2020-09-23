@@ -174,6 +174,7 @@ plugingen_plugins = \
 	proto/spire/server/upstreamauthority/upstreamauthority.proto,pkg/server/plugin/upstreamauthority,UpstreamAuthority \
 	proto/spire/server/noderesolver/noderesolver.proto,pkg/server/plugin/noderesolver,NodeResolver \
 	proto/spire/server/keymanager/keymanager.proto,pkg/server/plugin/keymanager,KeyManager \
+	proto/spire/server/identityexchanger/identityexchanger.proto,pkg/server/plugin/identityexchanger,IdentityExchanger \
 	proto/spire/agent/nodeattestor/nodeattestor.proto,pkg/agent/plugin/nodeattestor,NodeAttestor \
 	proto/spire/agent/workloadattestor/workloadattestor.proto,pkg/agent/plugin/workloadattestor,WorkloadAttestor \
 	proto/spire/agent/keymanager/keymanager.proto,pkg/agent/plugin/keymanager,KeyManager \
