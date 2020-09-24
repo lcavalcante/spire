@@ -26,6 +26,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
+// Represents a request to identify an agentless workload.
 type ExchangeRequest struct {
 	// Types that are valid to be assigned to Step:
 	//	*ExchangeRequest_Data
@@ -106,6 +107,7 @@ func (*ExchangeRequest) XXX_OneofWrappers() []interface{} {
 	}
 }
 
+// Represents a response when identifying caller
 type ExchangeResponse struct {
 	// Types that are valid to be assigned to Step:
 	//	*ExchangeResponse_Challenge
@@ -186,8 +188,11 @@ func (*ExchangeResponse) XXX_OneofWrappers() []interface{} {
 	}
 }
 
+// Success response, that contains selectors and spiffeID extracted from presented data
 type ExchangeResponse_Response struct {
-	WorkloadId           string             `protobuf:"bytes,1,opt,name=workload_id,json=workloadId,proto3" json:"workload_id,omitempty"`
+	// Worklaod SPIFFE ID
+	WorkloadId string `protobuf:"bytes,1,opt,name=workload_id,json=workloadId,proto3" json:"workload_id,omitempty"`
+	// List of selectors
 	Selectors            []*common.Selector `protobuf:"bytes,2,rep,name=selectors,proto3" json:"selectors,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
 	XXX_unrecognized     []byte             `json:"-"`
@@ -233,7 +238,7 @@ func (m *ExchangeResponse_Response) GetSelectors() []*common.Selector {
 	return nil
 }
 
-// TODO: MOVE TO COMMON
+// TODO: MOVE TO COMMON, Is it really required to move outside?
 type ExchangeData struct {
 	//* Type of exchange to perform.
 	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
@@ -337,7 +342,7 @@ const _ = grpc.SupportPackageIsVersion6
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type IdentityExchangerClient interface {
-	// Exchange SVID
+	// Exchange SVID,
 	Exchange(ctx context.Context, opts ...grpc.CallOption) (IdentityExchanger_ExchangeClient, error)
 	//* Responsible for configuration of the plugin.
 	Configure(ctx context.Context, in *plugin.ConfigureRequest, opts ...grpc.CallOption) (*plugin.ConfigureResponse, error)
@@ -404,7 +409,7 @@ func (c *identityExchangerClient) GetPluginInfo(ctx context.Context, in *plugin.
 
 // IdentityExchangerServer is the server API for IdentityExchanger service.
 type IdentityExchangerServer interface {
-	// Exchange SVID
+	// Exchange SVID,
 	Exchange(IdentityExchanger_ExchangeServer) error
 	//* Responsible for configuration of the plugin.
 	Configure(context.Context, *plugin.ConfigureRequest) (*plugin.ConfigureResponse, error)

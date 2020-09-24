@@ -7,7 +7,7 @@ import "spire/common/plugin/plugin.proto";
 import "spire/common/common.proto";
 
 service IdentityExchanger {
-    // Exchange SVID
+    // Exchange SVID, 
     rpc Exchange(stream ExchangeRequest) returns (stream ExchangeResponse);
 
     /** Responsible for configuration of the plugin. */
@@ -16,28 +16,36 @@ service IdentityExchanger {
     rpc GetPluginInfo(spire.common.plugin.GetPluginInfoRequest) returns (spire.common.plugin.GetPluginInfoResponse);
 }
 
+// Represents a request to identify an agentless workload.
 message ExchangeRequest {
     oneof step {
+        // A type witch contains identity data for an specific plataform.
         ExchangeData data = 1;
     
+        // Exchange response
         bytes response = 2;
     }
 }
 
+// Represents a response when identifying caller
 message ExchangeResponse {
+    // Success response, that contains selectors and spiffeID extracted from presented data
     message Response {
+	// Worklaod SPIFFE ID
         string workload_id = 1;
+	// List of selectors 
         repeated spire.common.Selector selectors = 2;
     }
     
     oneof step {
+    	// Challenge required for identity verification
         bytes challenge = 1;
-
+	// Response that contains extracted information from presented data
         Response response = 2;
     }
 }
 
-// TODO: MOVE TO COMMON
+// TODO: MOVE TO COMMON, Is it really required to move outside?
 message ExchangeData {
     /** Type of exchange to perform. */
     string type = 1;

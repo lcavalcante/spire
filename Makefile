@@ -148,6 +148,7 @@ protos := \
 	proto/spire/api/server/agent/v1/agent.proto \
 	proto/spire/api/server/bundle/v1/bundle.proto \
 	proto/spire/api/server/entry/v1/entry.proto \
+	proto/spire/api/server/identity/v1/identity.proto \
 	proto/spire/api/server/svid/v1/svid.proto \
 	proto/spire/types/agent.proto \
 	proto/spire/types/attestation.proto \
