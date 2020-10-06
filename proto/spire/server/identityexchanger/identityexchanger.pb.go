@@ -240,9 +240,9 @@ func (m *ExchangeResponse_Response) GetSelectors() []*common.Selector {
 
 // TODO: MOVE TO COMMON, Is it really required to move outside?
 type ExchangeData struct {
-	//* Type of exchange to perform.
+	// Type of identity exchange. Typically, the plugin name in charge of filling the data.
 	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	//* The exchange data.
+	// The platform-specific identity exchange data.
 	Data                 []byte   `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -342,11 +342,11 @@ const _ = grpc.SupportPackageIsVersion6
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type IdentityExchangerClient interface {
-	// Exchange SVID,
+	// Exchange a platform-specific identity document with an SVID
 	Exchange(ctx context.Context, opts ...grpc.CallOption) (IdentityExchanger_ExchangeClient, error)
-	//* Responsible for configuration of the plugin.
+	// Responsible for configuration of the indentityexchanger plugin
 	Configure(ctx context.Context, in *plugin.ConfigureRequest, opts ...grpc.CallOption) (*plugin.ConfigureResponse, error)
-	//* Returns the  version and related metadata of the installed plugin.
+	// Returns the version and related metadata of the installed plugin
 	GetPluginInfo(ctx context.Context, in *plugin.GetPluginInfoRequest, opts ...grpc.CallOption) (*plugin.GetPluginInfoResponse, error)
 }
 
@@ -409,11 +409,11 @@ func (c *identityExchangerClient) GetPluginInfo(ctx context.Context, in *plugin.
 
 // IdentityExchangerServer is the server API for IdentityExchanger service.
 type IdentityExchangerServer interface {
-	// Exchange SVID,
+	// Exchange a platform-specific identity document with an SVID
 	Exchange(IdentityExchanger_ExchangeServer) error
-	//* Responsible for configuration of the plugin.
+	// Responsible for configuration of the indentityexchanger plugin
 	Configure(context.Context, *plugin.ConfigureRequest) (*plugin.ConfigureResponse, error)
-	//* Returns the  version and related metadata of the installed plugin.
+	// Returns the version and related metadata of the installed plugin
 	GetPluginInfo(context.Context, *plugin.GetPluginInfoRequest) (*plugin.GetPluginInfoResponse, error)
 }
 

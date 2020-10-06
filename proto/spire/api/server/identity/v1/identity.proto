@@ -6,29 +6,38 @@ import "spire/types/x509svid.proto";
 import "spire/types/jwtsvid.proto";
 
 service Identity {
-    // Exchanges a SVID verifying identity via identity verification, using a bidirectional stream to
-    // facilitate verification, it can returns a JWT or X509 SVID.
+    // Exchanges a platform-specific identity document with an SVID.
+    // A bidirectional stream is provided to facilitate the exchange methods
+    // that require challenge/response. The result can be an X509 SVID or a JWT-SVID.
     rpc Exchange(stream ExchangeRequest) returns (stream ExchangeResponse);
-    
-    // Renews an identity and returns a new SVID.
+
+    // Renews the current SVID returning a new SVID. The new SVID is not enabled
+    // on the server side until its first use.
+    //
+    // The caller must present an active SVID, i.e. the SVID
+    // returned by the Exchange or the most recent Renew call.
     rpc Renew(RenewRequest) returns (RenewResponse);
 }
 
 message ExchangeRequest {
     message Params {
         // The exchange data
-        ExchangeData data = 1;
+        IdentityExchangeData data = 1;
     }
-    
+
     oneof step {
-	// Exchange parameters. It contains data to verify caller identity 
+        // Exchange parameters. It contains data to verify the caller identity
         Params params = 1;
-        
-	// Request a X509-SVID, it contains all required information
-        X509Request x509Request = 2;
-        
-	// Request a JWT-SVID. it contains all required information
-        JWTRequest jwtRequest = 3;
+
+        // The response to a challenge issued by the identity exchanger.
+        // Only sent in response to a challenge received by the issuer.
+        bytes challenge_response = 2;
+
+        // Request a X509-SVID, it contains all required information
+        X509Request x509Request = 3;
+
+        // Request a JWT-SVID. it contains all required information
+        JWTRequest jwtRequest = 4;
     }
 }
 
@@ -36,21 +45,21 @@ message ExchangeResponse {
     oneof step {
         // Exchanged X509-SVID
         X509Result x509Result = 1;
-        
-	// Exchanged JWT-SVID
+
+        // Exchanged JWT-SVID
         JWTResult jwtResult = 2;
 
-        // Challenge to verify servers identity
+        // Challenge to verify the identity document
         bytes challenge = 3;
     }
 }
 
 message RenewRequest {
     oneof step {
-       // Request renew a X509-SVID, It contains SVID to renew.
+       // Request renew a X509-SVID, it contains the X509-SVID to renew
        X509Request x509Request = 1;
-       
-       // Request renew a JWT-SVID, it contins the SVID to renew
+
+       // Request renew a JWT-SVID, it contins the JWT-SVID to renew
        JWTRequest jwtRequest = 2;
     }
 }
@@ -59,7 +68,7 @@ message RenewResponse {
     oneof step {
         // Renewed X509-SVID
         X509Result x509Result = 1;
-        
+
         // Renewed JWT-SVID
         JWTResult jwtResult = 2;
     }
@@ -67,27 +76,42 @@ message RenewResponse {
 
 message X509Request {
     message X509SVIDParams {
-    	// TODO: For both requests, how about provide an SPIFFE ID?
-	bytes csr = 1;
-	int32 ttl = 2;
+        // Required. The ASN.1 DER encoded Certificate Signing Request (CSR). The
+        // CSR is only used to convey the public key; other fields in the CSR are
+        // ignored. The X509-SVID attributes are determined by the Server.
+        bytes csr = 1;
+
+        // The desired TTL of the X509-SVID, in seconds. The server default will be
+        // used if unset. The TTL is advisory only. The actual lifetime of the
+        // X509-SVID may be lower depending on the remaining lifetime of the active
+        // SPIRE Server CA.
+	    int32 ttl = 2;
     }
+
     X509SVIDParams params = 1;
 }
 
 message JWTRequest {
     message JWTSVIDParams {
-    	// TODO: For both requests, how about provide an SPIFFE ID?
+        // Required. List of audience claims to include in the JWT-SVID.
+        // At least one must be set.
         repeated string audience = 1;
-	int32 Ttl = 2;
+
+        // Desired TTL of the JWT-SVID, in seconds. The server default will be used
+        // if unset. The TTL is advisory only. The actual lifetime of the JWT-SVID
+        // may be lower depending on the remaining lifetime of the active SPIRE
+        // Server CA.
+        int32 Ttl = 2;
     }
+
     JWTSVIDParams params = 1;
 }
 
-//  TODO: MOVE TO TYPES
-message ExchangeData {
-    // The type of the exchange data.
+//  TODO: Move to spire.types
+message IdentityExchangeData {
+    // The type of the identity exchange data.
     string type = 1;
-    
+
     // The exchanging data payload. For JWT it must include 
     string payload = 2;
 }
@@ -99,4 +123,3 @@ message X509Result {
 message JWTResult {
     spire.types.JWTSVID svid = 1;
 }
-
