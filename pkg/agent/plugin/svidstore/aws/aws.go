@@ -116,14 +116,14 @@ func (p *SecretsManagerPlugin) PutX509SVID(ctx context.Context, req *svidstore.P
 	}
 
 	for _, region := range regions {
-		if err := p.putX509SVID(ctx, secretID, region, data["kmskeyid"], req); err != nil {
+		if err := p.putX509SVID(secretID, region, data["kmskeyid"], req); err != nil {
 			return nil, err
 		}
 	}
 	return &svidstore.PutX509SVIDResponse{}, nil
 }
 
-func (p *SecretsManagerPlugin) putX509SVID(ctx context.Context, secretID, region, kmsKeyID string, req *svidstore.PutX509SVIDRequest) error {
+func (p *SecretsManagerPlugin) putX509SVID(secretID, region, kmsKeyID string, req *svidstore.PutX509SVIDRequest) error {
 	// Create client
 	sm, err := createSecretManagerClient(region)
 	if err != nil {

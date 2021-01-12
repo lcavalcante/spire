@@ -7,10 +7,10 @@ replace github.com/spiffe/spire/proto/spire => ./proto/spire
 require (
 	cloud.google.com/go v0.56.0
 	cloud.google.com/go/storage v1.6.0
-	github.com/Azure/azure-sdk-for-go v44.0.0+incompatible
+	github.com/Azure/azure-sdk-for-go v49.2.0+incompatible
 	github.com/Azure/go-autorest/autorest v0.11.0
 	github.com/Azure/go-autorest/autorest/azure/auth v0.5.0
-	github.com/Azure/go-autorest/autorest/to v0.4.0 // indirect
+	github.com/Azure/go-autorest/autorest/to v0.4.0
 	github.com/Azure/go-autorest/autorest/validation v0.3.0 // indirect
 	// version 1.14
 	github.com/GoogleCloudPlatform/cloudsql-proxy v0.0.0-20190405210948-c70a36b8193f
@@ -52,6 +52,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/prometheus/client_golang v1.4.0
+	github.com/satori/go.uuid v1.2.0
 	github.com/shirou/gopsutil v2.18.12+incompatible
 	github.com/shirou/w32 v0.0.0-20160930032740-bb4de0191aa4 // indirect
 	github.com/sirupsen/logrus v1.4.2
