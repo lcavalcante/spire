@@ -8,6 +8,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/profiles/latest/keyvault/mgmt/keyvault"
 	kv "github.com/Azure/azure-sdk-for-go/services/keyvault/v7.1/keyvault"
+	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl"
@@ -29,6 +30,7 @@ type secret struct {
 	group    string
 	location string
 	tenantID string
+	vault    string
 }
 
 func BuiltIn() catalog.Plugin {
@@ -101,6 +103,8 @@ func (p *KeyVaultPlugin) PutX509SVID(ctx context.Context, req *svidstore.PutX509
 		return nil, status.Error(codes.InvalidArgument, "secret group name is required")
 	case s.tenantID == "":
 		return nil, status.Error(codes.InvalidArgument, "secret tenant ID is required")
+	case s.vault == "":
+		return nil, status.Error(codes.InvalidArgument, "secret vault is required")
 	}
 
 	// Verify if vault exists, create it if necessary
@@ -128,7 +132,8 @@ func (p *KeyVaultPlugin) setSecret(ctx context.Context, req *svidstore.PutX509SV
 		return status.Errorf(codes.InvalidArgument, "failed to encode sercret: %v", err)
 	}
 
-	vaultURI := fmt.Sprintf("https://%s.vault.azure.net/", s.name)
+	// TODO: add var for vautl name and another for secret name
+	vaultURI := fmt.Sprintf("https://%s.%s/", s.name, azure.PublicCloud.KeyVaultDNSSuffix)
 	resp, err := client.SetSecret(ctx, vaultURI, s.name, kv.SecretSetParameters{
 		Value:       to.StringPtr(string(secretBinary)),
 		ContentType: to.StringPtr("X509-SVID"),
@@ -151,19 +156,19 @@ func (p *KeyVaultPlugin) verifyVaulExists(ctx context.Context, s *secret) error 
 	}
 
 	// response contains datails about `error` when call fails.
-	getResp, err := client.Get(ctx, s.group, s.name)
+	getResp, err := client.Get(ctx, s.group, s.vault)
 	switch getResp.StatusCode {
 	case http.StatusOK:
-		p.log.With("name", getResp.Name).Debug("key vault found")
+		p.log.With("vault", getResp.Name).Debug("key vault found")
 		if !validateTag(getResp.Tags) {
-			return status.Errorf(codes.InvalidArgument, "key vault %q does not contains 'spire-svid' tag", s.name)
+			return status.Errorf(codes.InvalidArgument, "key vault %q does not contains 'spire-svid' tag", s.vault)
 		}
 
 		return nil
 	case http.StatusNotFound:
-		p.log.With("name", s.name).Debug("key vault not found, creating...")
+		p.log.With("vault", s.vault).Debug("key vault not found, creating...")
 	default:
-		return status.Errorf(codes.Internal, "failed to get key vault %q: %v", s.name, err)
+		return status.Errorf(codes.Internal, "failed to get key vault %q: %v", s.vault, err)
 	}
 
 	if s.location == "" {
@@ -203,7 +208,7 @@ func (p *KeyVaultPlugin) verifyVaulExists(ctx context.Context, s *secret) error 
 		},
 	}
 
-	_, err = client.CreateOrUpdate(ctx, s.group, s.name, keyvault.VaultCreateOrUpdateParameters{
+	_, err = client.CreateOrUpdate(ctx, s.group, s.vault, keyvault.VaultCreateOrUpdateParameters{
 		Location:   &s.location,
 		Tags:       map[string]*string{"spire-svid": to.StringPtr("true")},
 		Properties: properties,
@@ -234,6 +239,7 @@ func (p *KeyVaultPlugin) getCurrentUser(ctx context.Context, tenantID string) (*
 func (p *KeyVaultPlugin) parseSelectors(selectors []*common.Selector) *secret {
 	data := svidstore.ParseSelectors(selectors)
 	name := data["secretname"]
+	vault := data["secretvault"]
 
 	group := p.config.ResourceGroup
 	if value, ok := data["secretgroup"]; ok {
@@ -253,8 +259,9 @@ func (p *KeyVaultPlugin) parseSelectors(selectors []*common.Selector) *secret {
 	return &secret{
 		name:     name,
 		group:    group,
-		tenantID: tenantID,
 		location: location,
+		tenantID: tenantID,
+		vault:    vault,
 	}
 }
 
