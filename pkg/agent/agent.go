@@ -108,7 +108,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer pipeIn.Close()
 	}
 
-	manager, err := a.newManager(ctx, cat, metrics, as)
+	manager, err := a.newManager(ctx, cat, metrics, as, pipeIn)
 	if err != nil {
 		return err
 	}

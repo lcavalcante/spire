@@ -115,7 +115,6 @@ func putSVID(ctx context.Context, log logrus.FieldLogger, update *pipe.SVIDUpdat
 	if _, err := svidStore.PutX509SVID(ctx, req); err != nil {
 		log.Errorf("Failed to put X509-SVID to %q: %v", pluginName, err)
 	}
-	return
 }
 
 // TODO: this codes depends on desicion about using a new field for Entry.
@@ -148,10 +147,11 @@ func parseUpdate(update *pipe.SVIDUpdate) (*svidstore.PutX509SVIDRequest, error)
 	return &svidstore.PutX509SVIDRequest{
 		Selectors: update.Entry.Selectors,
 		Svid: &svidstore.X509SVID{
-			SpiffeId:    update.Entry.SpiffeId,
-			Bundle:      marshalBundle(update.Bundle),
-			X509SvidKey: keyData,
-			X509Svid:    x509util.DERFromCertificates(update.SVID),
+			SpiffeId:   update.Entry.SpiffeId,
+			Bundle:     marshalBundle(update.Bundle),
+			CertChain:  x509util.DERFromCertificates(update.SVID),
+			PrivateKey: keyData,
+			ExpiresAt:  update.Entry.EntryExpiry,
 		},
 		FederatedBundles: federatedBundles,
 	}, nil
