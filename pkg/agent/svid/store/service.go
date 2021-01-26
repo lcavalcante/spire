@@ -3,12 +3,9 @@ package store
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/spiffe/spire/pkg/agent/catalog"
 	"github.com/spiffe/spire/pkg/agent/manager/pipe"
 	"github.com/spiffe/spire/pkg/agent/plugin/svidstore"
 	"github.com/spiffe/spire/pkg/common/bundleutil"
@@ -16,7 +13,6 @@ import (
 	telemetry_store "github.com/spiffe/spire/pkg/common/telemetry/agent/store"
 	"github.com/spiffe/spire/pkg/common/util"
 	"github.com/spiffe/spire/pkg/common/x509util"
-	"github.com/spiffe/spire/proto/spire/common"
 )
 
 type Service interface {
@@ -25,15 +21,11 @@ type Service interface {
 }
 
 type Config struct {
-	Log     logrus.FieldLogger
-	PipeOut pipe.Out
-	Catalog catalog.Catalog
-	Metrics telemetry.Metrics
+	Log       logrus.FieldLogger
+	PipeOut   pipe.Out
+	Metrics   telemetry.Metrics
+	SVIDStore svidstore.SVIDStore
 }
-
-const (
-	typeSelector = "type"
-)
 
 func New(c Config) Service {
 	return &store{
@@ -61,50 +53,23 @@ func (p *store) Run(ctx context.Context) error {
 }
 
 func (p *store) run(ctx context.Context) error {
-	log := p.c.Log
-
-	// Get all configured SVID stores and create a map with them
-	// keyed by the plugin name
-	svidStores := make(map[string]svidstore.SVIDStore)
-	for _, pp := range p.c.Catalog.GetSVIDStores() {
-		svidStores[pp.Name()] = pp
-	}
-
-	// This is a defensive check. This code is only reachable when there is
-	// at least one SVID Store plugin
-	if len(svidStores) == 0 {
-		return errors.New("no SVID store provided")
-	}
-
 	for {
 		select {
 		case update := <-p.c.PipeOut.GetUpdate():
-			putSVID(ctx, log, update, svidStores, p.c.Metrics)
+			p.putSVID(ctx, update)
 		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-func putSVID(ctx context.Context, log logrus.FieldLogger, update *pipe.SVIDUpdate, svidStores map[string]svidstore.SVIDStore, metrics telemetry.Metrics) {
-	counter := telemetry_store.StartPutSVIDCall(metrics)
+func (p *store) putSVID(ctx context.Context, update *pipe.SVIDUpdate) {
+	counter := telemetry_store.StartPutSVIDCall(p.c.Metrics)
 	defer counter.Done(nil)
 
-	log = log.WithField(telemetry.RegistrationID, update.Entry.EntryId)
-	// Get SVID store name from the selectors of the entry
-	pluginName, err := getPluginName(update.Entry.Selectors)
-	if err != nil {
-		log.WithError(err).Debugf("Unable to get plugin name from selectors")
-		return
-	}
-
-	log = log.WithField("plugin_name", pluginName)
-
-	svidStore, ok := svidStores[pluginName]
-	if !ok {
-		log.Warn("no SVID store found for entry")
-		return
-	}
+	log := p.c.Log.WithFields(logrus.Fields{
+		telemetry.RegistrationID: update.Entry.EntryId,
+	})
 
 	req, err := parseUpdate(update)
 	if err != nil {
@@ -112,24 +77,9 @@ func putSVID(ctx context.Context, log logrus.FieldLogger, update *pipe.SVIDUpdat
 		return
 	}
 
-	if _, err := svidStore.PutX509SVID(ctx, req); err != nil {
-		log.Errorf("Failed to put X509-SVID to %q: %v", pluginName, err)
+	if _, err := p.c.SVIDStore.PutX509SVID(ctx, req); err != nil {
+		log.Errorf("Failed to put X509-SVID: %v", err)
 	}
-}
-
-// TODO: this codes depends on desicion about using a new field for Entry.
-// It may be refactor depending on it
-func getPluginName(selectors []*common.Selector) (string, error) {
-	for _, selector := range selectors {
-		// selector "svidstore:type:$PLUGIN_NAME" is expected
-		if selector.Type == strings.ToLower(svidstore.Type) {
-			splitted := strings.SplitN(selector.Value, ":", 2)
-			if len(splitted) > 1 && splitted[0] == typeSelector {
-				return splitted[1], nil
-			}
-		}
-	}
-	return "", errors.New("store information not found in selectors")
 }
 
 // parseUpdate parses an SVID Update into a *svidstore.PutX509SVIDRequest request

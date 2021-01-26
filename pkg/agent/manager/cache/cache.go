@@ -3,12 +3,15 @@ package cache
 import (
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spiffe/spire/pkg/agent/manager/pipe"
+	"github.com/spiffe/spire/pkg/agent/plugin/svidstore"
 	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/pkg/common/telemetry"
 	"github.com/spiffe/spire/proto/spire/common"
@@ -116,8 +119,8 @@ type Cache struct {
 	// bundles holds the trust bundles, keyed by trust domain id (i.e. "spiffe://domain.test")
 	bundles map[string]*bundleutil.Bundle
 
-	// buffered pipe for 'storable' SVIDs
-	pipeIn pipe.In
+	// buffered pipes for 'exportables' SVIDs
+	pipesIn map[string]pipe.In
 }
 
 // StaleEntry holds stale entries with SVIDs expiration time
@@ -128,7 +131,7 @@ type StaleEntry struct {
 	ExpiresAt time.Time
 }
 
-func New(log logrus.FieldLogger, trustDomainID string, bundle *Bundle, metrics telemetry.Metrics, pipeIn pipe.In) *Cache {
+func New(log logrus.FieldLogger, trustDomainID string, bundle *Bundle, metrics telemetry.Metrics, pipesIn map[string]pipe.In) *Cache {
 	return &Cache{
 		BundleCache:  NewBundleCache(trustDomainID, bundle),
 		JWTSVIDCache: NewJWTSVIDCache(),
@@ -142,7 +145,7 @@ func New(log logrus.FieldLogger, trustDomainID string, bundle *Bundle, metrics t
 		bundles: map[string]*bundleutil.Bundle{
 			trustDomainID: bundle,
 		},
-		pipeIn: pipeIn,
+		pipesIn: pipesIn,
 	}
 }
 
@@ -398,8 +401,22 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 		})
 		log.Debug("SVID updated")
 
-		// Verify if pipe exists and if current entry is storable
-		if c.pipeIn != nil && c.pipeIn.IsStorable(record.entry.Selectors) {
+		if len(c.pipesIn) > 0 {
+
+			plugName, err := getPluginName(record.entry.Selectors)
+			if err != nil {
+				// entry is not exportable
+				continue
+			}
+			pipeIn, ok := c.pipesIn[plugName]
+			if !ok {
+				c.log.WithFields(logrus.Fields{
+					telemetry.RegistrationID: entryID,
+					telemetry.PluginName:     plugName,
+				}).Error("no Store plugin found")
+
+				continue
+			}
 			update := &pipe.SVIDUpdate{
 				Entry:            record.entry,
 				SVID:             record.svid.Chain,
@@ -420,7 +437,7 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 				}
 			}
 
-			c.pipeIn.Push(update)
+			pipeIn.Push(update)
 		}
 
 		// Registration entry is updated, remove it from stale map
@@ -428,6 +445,20 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 	}
 
 	c.notifyBySelectors(notifySet)
+}
+
+// TODO: it will be replaced for a field on registrtion entries
+func getPluginName(selectors []*common.Selector) (string, error) {
+	for _, selector := range selectors {
+		// selector "svidstore:type:$PLUGIN_NAME" is expected
+		if selector.Type == strings.ToLower(svidstore.Type) {
+			splitted := strings.SplitN(selector.Value, ":", 2)
+			if len(splitted) > 1 && splitted[0] == "type" {
+				return splitted[1], nil
+			}
+		}
+	}
+	return "", errors.New("store information not found in selectors")
 }
 
 // GetStaleEntries obtains a list of stale entries

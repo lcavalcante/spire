@@ -4,10 +4,8 @@ package pipe
 import (
 	"crypto"
 	"crypto/x509"
-	"strings"
 	"sync"
 
-	"github.com/spiffe/spire/pkg/agent/plugin/svidstore"
 	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/proto/spire/common"
 )
@@ -23,7 +21,6 @@ type SVIDUpdate struct {
 }
 
 type In interface {
-	IsStorable([]*common.Selector) bool
 	Push(*SVIDUpdate)
 	Close()
 }
@@ -71,16 +68,6 @@ func newPipeIn(wg *sync.WaitGroup, in chan *SVIDUpdate) *pipeIn {
 		done: make(chan struct{}),
 		wg:   wg,
 	}
-}
-
-func (p *pipeIn) IsStorable(selectors []*common.Selector) bool {
-	for _, s := range selectors {
-		if s.Type == strings.ToLower(svidstore.Type) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (p *pipeIn) Push(event *SVIDUpdate) {
