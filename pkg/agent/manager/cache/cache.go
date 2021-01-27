@@ -4,14 +4,13 @@ import (
 	"crypto"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spiffe/spire/pkg/agent/manager/pipe"
-	"github.com/spiffe/spire/pkg/agent/plugin/svidstore"
 	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/pkg/common/telemetry"
 	"github.com/spiffe/spire/proto/spire/common"
@@ -401,43 +400,11 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 		})
 		log.Debug("SVID updated")
 
-		if len(c.pipesIn) > 0 {
-
-			plugName, err := getPluginName(record.entry.Selectors)
-			if err != nil {
-				// entry is not exportable
+		if record.entry.ExportableIdentity {
+			if err := c.exportSVID(record); err != nil {
+				c.log.WithError(err).WithField(telemetry.RegistrationID, record.entry.EntryId).Error("failed to export SVID")
 				continue
 			}
-			pipeIn, ok := c.pipesIn[plugName]
-			if !ok {
-				c.log.WithFields(logrus.Fields{
-					telemetry.RegistrationID: entryID,
-					telemetry.PluginName:     plugName,
-				}).Error("no Store plugin found")
-
-				continue
-			}
-			update := &pipe.SVIDUpdate{
-				Entry:            record.entry,
-				SVID:             record.svid.Chain,
-				PrivateKey:       record.svid.PrivateKey,
-				Bundle:           c.bundles[c.trustDomainID],
-				FederatedBundles: make(map[string]*bundleutil.Bundle),
-			}
-
-			for _, federatesWith := range record.entry.FederatesWith {
-				if federatedBundle := c.bundles[federatesWith]; federatedBundle != nil {
-					update.FederatedBundles[federatesWith] = federatedBundle
-				} else {
-					c.log.WithFields(logrus.Fields{
-						telemetry.RegistrationID:  record.entry.EntryId,
-						telemetry.SPIFFEID:        record.entry.SpiffeId,
-						telemetry.FederatedBundle: federatesWith,
-					}).Warn("Federated bundle contents missing")
-				}
-			}
-
-			pipeIn.Push(update)
 		}
 
 		// Registration entry is updated, remove it from stale map
@@ -447,18 +414,52 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 	c.notifyBySelectors(notifySet)
 }
 
-// TODO: it will be replaced for a field on registrtion entries
-func getPluginName(selectors []*common.Selector) (string, error) {
-	for _, selector := range selectors {
-		// selector "svidstore:type:$PLUGIN_NAME" is expected
-		if selector.Type == strings.ToLower(svidstore.Type) {
-			splitted := strings.SplitN(selector.Value, ":", 2)
-			if len(splitted) > 1 && splitted[0] == "type" {
-				return splitted[1], nil
-			}
+func (c *Cache) exportSVID(record *cacheRecord) error {
+	plugName, err := getPluginName(record.entry.Selectors)
+	if err != nil {
+		return err
+	}
+
+	pipeIn, ok := c.pipesIn[plugName]
+	if !ok {
+		return fmt.Errorf("no SVID Store %q found", plugName)
+	}
+	update := &pipe.SVIDUpdate{
+		Entry:            record.entry,
+		SVID:             record.svid.Chain,
+		PrivateKey:       record.svid.PrivateKey,
+		Bundle:           c.bundles[c.trustDomainID],
+		FederatedBundles: make(map[string]*bundleutil.Bundle),
+	}
+
+	for _, federatesWith := range record.entry.FederatesWith {
+		if federatedBundle := c.bundles[federatesWith]; federatedBundle != nil {
+			update.FederatedBundles[federatesWith] = federatedBundle
+		} else {
+			c.log.WithFields(logrus.Fields{
+				telemetry.RegistrationID:  record.entry.EntryId,
+				telemetry.SPIFFEID:        record.entry.SpiffeId,
+				telemetry.FederatedBundle: federatesWith,
+			}).Warn("Federated bundle contents missing")
 		}
 	}
-	return "", errors.New("store information not found in selectors")
+
+	pipeIn.Push(update)
+	return nil
+}
+
+func getPluginName(selectors []*common.Selector) (string, error) {
+	if len(selectors) == 0 {
+		return "", errors.New("no selectors found")
+	}
+
+	name := selectors[0].Type
+	for _, s := range selectors {
+		if name != s.Type {
+			return "", errors.New("selector contains multiple types")
+		}
+	}
+	return name, nil
 }
 
 // GetStaleEntries obtains a list of stale entries

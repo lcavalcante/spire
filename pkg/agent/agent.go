@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	api_workload "github.com/spiffe/spire/api/workload"
 	admin_api "github.com/spiffe/spire/pkg/agent/api"
@@ -98,17 +99,22 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// If there is an SVID Store plugin, create a buffered pipe
-	var pipeIn pipe.In
-	var pipeOut pipe.Out
-
-	hasStores := len(cat.GetSVIDStores()) > 0
-	if hasStores {
-		pipeIn, pipeOut = pipe.BufferedPipe(a.c.PipeSize)
-		defer pipeIn.Close()
+	storesIn := make(map[string]pipe.In)
+	storesOut := make(map[string]pipe.Out)
+	svidStores := make(map[string]catalog.SVIDStores)
+	for _, svidStore := range cat.GetSVIDStores() {
+		pipeIn, pipeOut := pipe.BufferedPipe(a.c.PipeSize)
+		svidStores[svidStore.Name()] = svidStore
+		storesIn[svidStore.Name()] = pipeIn
+		storesOut[svidStore.Name()] = pipeOut
 	}
+	defer func() {
+		for _, pipeIn := range storesIn {
+			pipeIn.Close()
+		}
+	}()
 
-	manager, err := a.newManager(ctx, cat, metrics, as, pipeIn)
+	manager, err := a.newManager(ctx, cat, metrics, as, storesIn)
 	if err != nil {
 		return err
 	}
@@ -135,8 +141,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// If an SVID store is configured, create store and add it to tasks
-	if hasStores {
-		store := a.newStore(cat, pipeOut, metrics)
+	for name, svidStore := range svidStores {
+		// All maps are created together it will never be false
+		pipeOut := storesOut[name]
+		store := a.newStore(svidStore, pipeOut, metrics)
 		tasks = append(tasks, store.Run)
 	}
 
@@ -221,7 +229,7 @@ func (a *Agent) attest(ctx context.Context, cat catalog.Catalog, metrics telemet
 	return node_attestor.New(&config).Attest(ctx)
 }
 
-func (a *Agent) newManager(ctx context.Context, cat catalog.Catalog, metrics telemetry.Metrics, as *node_attestor.AttestationResult, pipeIn pipe.In) (manager.Manager, error) {
+func (a *Agent) newManager(ctx context.Context, cat catalog.Catalog, metrics telemetry.Metrics, as *node_attestor.AttestationResult, pipeIn map[string]pipe.In) (manager.Manager, error) {
 	config := &manager.Config{
 		SVID:            as.SVID,
 		SVIDKey:         as.Key,
@@ -234,7 +242,7 @@ func (a *Agent) newManager(ctx context.Context, cat catalog.Catalog, metrics tel
 		BundleCachePath: a.bundleCachePath(),
 		SVIDCachePath:   a.agentSVIDPath(),
 		SyncInterval:    a.c.SyncInterval,
-		PipeIn:          pipeIn,
+		PipesIn:         pipeIn,
 	}
 
 	mgr := manager.New(config)
@@ -245,12 +253,15 @@ func (a *Agent) newManager(ctx context.Context, cat catalog.Catalog, metrics tel
 	return mgr, nil
 }
 
-func (a *Agent) newStore(c catalog.Catalog, pipeOut pipe.Out, metrics telemetry.Metrics) store.Service {
+func (a *Agent) newStore(svidStore catalog.SVIDStores, pipeOut pipe.Out, metrics telemetry.Metrics) store.Service {
 	config := store.Config{
-		Catalog: c,
-		Log:     a.c.Log.WithField(telemetry.SubsystemName, strings.ToLower(svidstore.Type)),
-		Metrics: metrics,
-		PipeOut: pipeOut,
+		Log: a.c.Log.WithFields(logrus.Fields{
+			telemetry.SubsystemName: strings.ToLower(svidstore.Type),
+			telemetry.PluginName:    svidStore.Name,
+		}),
+		Metrics:   metrics,
+		PipeOut:   pipeOut,
+		SVIDStore: svidStore,
 	}
 
 	return store.New(config)

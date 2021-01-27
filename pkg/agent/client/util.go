@@ -67,10 +67,11 @@ func slicedEntryFromProto(e *types.Entry) (*common.RegistrationEntry, error) {
 	}
 
 	return &common.RegistrationEntry{
-		EntryId:        e.Id,
-		SpiffeId:       spiffeID,
-		FederatesWith:  federatesWith,
-		RevisionNumber: e.RevisionNumber,
-		Selectors:      selectors,
+		EntryId:            e.Id,
+		SpiffeId:           spiffeID,
+		FederatesWith:      federatesWith,
+		RevisionNumber:     e.RevisionNumber,
+		Selectors:          selectors,
+		ExportableIdentity: e.ExportableIdentity,
 	}, nil
 }
