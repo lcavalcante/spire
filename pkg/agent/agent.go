@@ -40,6 +40,22 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type bufferedPipe struct {
+	store catalog.SVIDStores
+	in    pipe.In
+	out   pipe.Out
+}
+
+type bufferedPipes map[string]bufferedPipe
+
+func (p bufferedPipes) pipeIns() map[string]pipe.In {
+	m := make(map[string]pipe.In)
+	for name, bp := range p {
+		m[name] = bp.in
+	}
+	return m
+}
+
 type Agent struct {
 	c *Config
 }
@@ -99,22 +115,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	storesIn := make(map[string]pipe.In)
-	storesOut := make(map[string]pipe.Out)
-	svidStores := make(map[string]catalog.SVIDStores)
+	pipes := make(bufferedPipes)
 	for _, svidStore := range cat.GetSVIDStores() {
 		pipeIn, pipeOut := pipe.BufferedPipe(a.c.PipeSize)
-		svidStores[svidStore.Name()] = svidStore
-		storesIn[svidStore.Name()] = pipeIn
-		storesOut[svidStore.Name()] = pipeOut
+		pipes[svidStore.Name()] = bufferedPipe{
+			store: svidStore,
+			in:    pipeIn,
+			out:   pipeOut,
+		}
 	}
+	pipesIn := pipes.pipeIns()
 	defer func() {
-		for _, pipeIn := range storesIn {
+		for _, pipeIn := range pipesIn {
 			pipeIn.Close()
 		}
 	}()
 
-	manager, err := a.newManager(ctx, cat, metrics, as, storesIn)
+	manager, err := a.newManager(ctx, cat, metrics, as, pipesIn)
 	if err != nil {
 		return err
 	}
@@ -141,10 +158,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// If an SVID store is configured, create store and add it to tasks
-	for name, svidStore := range svidStores {
-		// All maps are created together it will never be false
-		pipeOut := storesOut[name]
-		store := a.newStore(svidStore, pipeOut, metrics)
+	for _, bp := range pipes {
+		store := a.newStore(bp.store, bp.out, metrics)
 		tasks = append(tasks, store.Run)
 	}
 

@@ -46,8 +46,9 @@ func TestFetchUpdates(t *testing.T) {
 			Selectors: []*types.Selector{
 				{Type: "S", Value: "1"},
 			},
-			FederatesWith:  []string{"domain1.com"},
-			RevisionNumber: 1234,
+			FederatesWith:      []string{"domain1.com"},
+			RevisionNumber:     1234,
+			ExportableIdentity: true,
 		},
 		// This entry should be ignored since it is missing an entry ID
 		{
@@ -305,7 +306,8 @@ func newTestFetchX509SVIDResponse() *node.FetchX509SVIDResponse {
 					FederatesWith: []string{
 						"spiffe://domain1.com",
 					},
-					RevisionNumber: 1234,
+					RevisionNumber:     1234,
+					ExportableIdentity: true,
 				},
 				// This entry should be ignored since it is missing an entry ID
 				{
@@ -369,8 +371,9 @@ func TestFetchReleaseWaitsForFetchUpdatesToFinish(t *testing.T) {
 			Selectors: []*types.Selector{
 				{Type: "S", Value: "1"},
 			},
-			FederatesWith:  []string{"domain1.com"},
-			RevisionNumber: 1234,
+			FederatesWith:      []string{"domain1.com"},
+			RevisionNumber:     1234,
+			ExportableIdentity: true,
 		},
 		// This entry should be ignored since it is missing an entry ID
 		{

@@ -3,11 +3,14 @@ package cache
 import (
 	"crypto/x509"
 	"fmt"
+	"net/url"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/spire/pkg/agent/manager/pipe"
 	"github.com/spiffe/spire/pkg/common/bundleutil"
 	"github.com/spiffe/spire/pkg/common/telemetry"
 	"github.com/spiffe/spire/proto/spire/common"
@@ -380,6 +383,75 @@ func TestSubcriberNotificationsOnSelectorChanges(t *testing.T) {
 func newTestCache() *Cache {
 	log, _ := test.NewNullLogger()
 	return New(log, "spiffe://domain.test", bundleV1, telemetry.Blackhole{}, nil)
+}
+
+func TestExportSVIDs(t *testing.T) {
+	plugName := "plugin_name"
+	pipeIn := &fakePipeIn{}
+	pipes := map[string]pipe.In{
+		plugName: pipeIn,
+	}
+	log, _ := test.NewNullLogger()
+	cache := New(log, "spiffe://domain.test", bundleV1, telemetry.Blackhole{}, pipes)
+
+	expected := &pipe.SVIDUpdate{
+		Entry:  foo,
+		SVID:   svid.Chain,
+		Bundle: bundles[bundleV1.TrustDomainID()],
+		FederatedBundles: map[string]*bundleutil.Bundle{
+			otherBundleV1.TrustDomainID(): bundles[otherBundleV1.TrustDomainID()],
+		},
+	}
+
+	for _, tt := range []struct {
+		name         string
+		expectedSVID *pipe.SVIDUpdate
+		updateEntry  func(e *common.RegistrationEntry)
+	}{
+		{},
+	} {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			foo := makeRegistrationEntry("FOO")
+			foo.ExportableIdentity = true
+			foo.Selectors = []*common.Selector{{Type: plugName, Value: "a:1"}}
+			foo.FederatesWith = []string{otherBundleV1.TrustDomainID()}
+
+			bundles := makeBundles(bundleV1, otherBundleV1)
+			cache.UpdateEntries(&UpdateEntries{
+				Bundles:             bundles,
+				RegistrationEntries: makeRegistrationEntries(foo),
+			}, nil)
+
+			x509SVIDs := makeX509SVIDs(foo)
+			svid := x509SVIDs[foo.EntryId]
+			svid.Chain = []*x509.Certificate{
+				{
+					URIs: []*url.URL{
+						spiffeid.RequireFromString(foo.SpiffeId).URL(),
+					},
+				},
+			}
+
+			// Update SVID
+			cache.UpdateSVIDs(&UpdateSVIDs{
+				X509SVIDs: x509SVIDs,
+			})
+
+			assert.Equal(t, tt.expectedSVID, pipeIn.update)
+		})
+	}
+}
+
+type fakePipeIn struct {
+	pipe.In
+
+	update *pipe.SVIDUpdate
+}
+
+func (p *fakePipeIn) Push(update *pipe.SVIDUpdate) {
+	fmt.Printf("updating: %v", update)
+	p.update = update
 }
 
 func TestSubcriberNotifiedWhenEntryDropped(t *testing.T) {

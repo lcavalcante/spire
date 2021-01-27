@@ -393,18 +393,20 @@ func (c *Cache) UpdateSVIDs(update *UpdateSVIDs) {
 		}
 
 		record.svid = svid
-		notifySet.Merge(record.entry.Selectors...)
 		log := c.log.WithFields(logrus.Fields{
 			telemetry.Entry:    record.entry.EntryId,
 			telemetry.SPIFFEID: record.entry.SpiffeId,
 		})
 		log.Debug("SVID updated")
 
+		// TODO: may we allow subscribe to notifications when SVID is exportable?
+		// at the same time may we add a filter to avoid using this entries for attestation?
 		if record.entry.ExportableIdentity {
 			if err := c.exportSVID(record); err != nil {
 				c.log.WithError(err).WithField(telemetry.RegistrationID, record.entry.EntryId).Error("failed to export SVID")
-				continue
 			}
+		} else {
+			notifySet.Merge(record.entry.Selectors...)
 		}
 
 		// Registration entry is updated, remove it from stale map
