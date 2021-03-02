@@ -108,6 +108,7 @@ secrets:
 		t.Logf("fail to marshal")
 	}
 	var certList = []*x509.Certificate{cert}
+	var emptyList = []*x509.Certificate{}
 
 	var tdir = "predecessor_dir"
 	var tcert = "cert.crt"
@@ -184,7 +185,7 @@ secrets:
 				SpiffeId:    "spiffe://acme.com/billing/payments",
 				Bundle:      nil,
 				X509SvidKey: keyData,
-				X509Svid:    nil,
+				X509Svid:    x509util.DERFromCertificates(emptyList),
 			},
 			SessionName: "t2",
 			SessionHash: "h2",

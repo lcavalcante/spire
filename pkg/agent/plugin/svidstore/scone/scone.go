@@ -365,7 +365,7 @@ func (p *SecretsManagerPlugin) PutX509SVID(ctx context.Context, req *svidstore.P
 
 	// Parse SVID
 	certificateList, err := x509.ParseCertificates(req.GetSvid().GetX509Svid())
-	if err != nil {
+	if err != nil || len(certificateList) < 1 {
 		return &svidstore.PutX509SVIDResponse{}, err
 	}
 
